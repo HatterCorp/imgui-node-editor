@@ -1583,8 +1583,14 @@ void ed::EditorContext::End()
         auto& style = ImGui::GetStyle();
         auto borderShadoColor = style.Colors[ImGuiCol_BorderShadow];
         auto borderColor = style.Colors[ImGuiCol_Border];
-        m_DrawList->AddRect(m_Canvas.Rect().Min + ImVec2(1, 1), m_Canvas.Rect().Max - ImVec2(1, 1), ImColor(borderShadoColor));
-        m_DrawList->AddRect(m_Canvas.Rect().Min, m_Canvas.Rect().Max, ImColor(borderColor));
+        //m_DrawList->AddRect(m_Canvas.Rect().Min + ImVec2(1, 1), m_Canvas.Rect().Max - ImVec2(1, 1), ImColor(borderShadoColor));
+        //m_DrawList->AddRect(m_Canvas.Rect().Min, m_Canvas.Rect().Max, ImColor(borderColor));
+        const float borderSize = style.FrameBorderSize;
+        if (borderSize > 0)
+        {
+            m_DrawList->AddRect(m_Canvas.Rect().Min + ImVec2(1, 1), m_Canvas.Rect().Max - ImVec2(1, 1), ImColor(borderShadoColor), 0, 0, borderSize);
+            m_DrawList->AddRect(m_Canvas.Rect().Min, m_Canvas.Rect().Max, ImColor(borderColor), 0, 0, borderSize);
+        }
     }
 
     // #metrics
