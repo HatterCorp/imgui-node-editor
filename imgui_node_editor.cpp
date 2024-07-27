@@ -80,6 +80,10 @@ static inline ImGuiKey GetKeyIndexForD()
 {
     return ImGuiKey_D;
 }
+// # if !defined(IMGUI_VERSION_NUM)
+// #     error IMGUI_VERSION_NUM is not defined, please update Dear ImGui copy to at least 1.89 (August 2022)
+// # elif IMGUI_VERSION_NUM < 18900
+// #     error Please update Dear ImGui copy to at least 1.89 (August 2022)
 # endif
 
 } // namespace Detail
@@ -129,11 +133,7 @@ static const float c_SelectionFadeOutDuration   = 0.15f; // seconds
 static const auto  c_MaxMoveOverEdgeSpeed       = 10.0f;
 static const auto  c_MaxMoveOverEdgeDistance    = 300.0f;
 
-#if IMGUI_VERSION_NUM > 18101
 static const auto  c_AllRoundCornersFlags = ImDrawFlags_RoundCornersAll;
-#else
-static const auto  c_AllRoundCornersFlags = 15;
-#endif
 
 
 //------------------------------------------------------------------------------
@@ -1137,9 +1137,9 @@ void ed::EditorContext::Begin(const char* id, const ImVec2& size)
 
     if (!m_IsInitialized)
     {
-        // Cycle canvas so it has a change to setup its size before settings are loaded
-        m_Canvas.Begin(id, canvasSize);
-        m_Canvas.End();
+        // Cycle canvas, so it has a chance to initialize its size before settings are loaded
+        if (m_Canvas.Begin(id, canvasSize))
+            m_Canvas.End();
 
         LoadSettings();
         m_IsInitialized = true;
@@ -1971,7 +1971,8 @@ void ed::EditorContext::Suspend(SuspendFlags flags)
     IM_ASSERT(m_DrawList != nullptr && "Suspend was called outiside of Begin/End.");
     auto lastChannel = m_DrawList->_Splitter._Current;
     m_DrawList->ChannelsSetCurrent(m_ExternalChannel);
-    m_Canvas.Suspend();
+    if (m_IsCanvasVisible)
+        m_Canvas.Suspend();
     m_DrawList->ChannelsSetCurrent(lastChannel);
     if ((flags & SuspendFlags::KeepSplitter) != SuspendFlags::KeepSplitter)
         ImDrawList_SwapSplitter(m_DrawList, m_Splitter);
@@ -1984,7 +1985,8 @@ void ed::EditorContext::Resume(SuspendFlags flags)
         ImDrawList_SwapSplitter(m_DrawList, m_Splitter);
     auto lastChannel = m_DrawList->_Splitter._Current;
     m_DrawList->ChannelsSetCurrent(m_ExternalChannel);
-    m_Canvas.Resume();
+    if (m_IsCanvasVisible)
+        m_Canvas.Resume();
     m_DrawList->ChannelsSetCurrent(lastChannel);
 }
 
@@ -2569,7 +2571,7 @@ ed::Control ed::EditorContext::BuildControl(bool allowOffscreen)
 # if IMGUI_VERSION_NUM >= 18836
     if (m_IsHoveredWithoutOverlapp)
         ImGui::SetItemKeyOwner(ImGuiKey_MouseWheelY);
-# elif IMGUI_VERSION_NUM >= 17909
+# else
     if (m_IsHoveredWithoutOverlapp)
         ImGui::SetItemUsingMouseWheel();
 # endif
@@ -3453,8 +3455,7 @@ bool ed::NavigateAction::HandleZoom(const Control& control)
     m_Animation.Finish();
 
     auto mousePos = io.MousePos;
-    auto steps    = (int)io.MouseWheel;
-    auto newZoom  = MatchZoom(steps, m_ZoomLevels[steps < 0 ? 0 : m_ZoomLevelCount - 1]);
+    auto newZoom  = GetNextZoom(io.MouseWheel);
 
     auto oldView   = GetView();
     m_Zoom = newZoom;
@@ -3628,6 +3629,32 @@ void ed::NavigateAction::SetViewRect(const ImRect& rect)
 ImRect ed::NavigateAction::GetViewRect() const
 {
     return m_Canvas.CalcViewRect(GetView());
+}
+
+float ed::NavigateAction::GetNextZoom(float steps)
+{
+    if (this->Editor->GetConfig().EnableSmoothZoom)
+    {
+        return MatchSmoothZoom(steps);
+    }
+    else
+    {
+        auto fixedSteps = (int)steps;
+        return MatchZoom(fixedSteps, m_ZoomLevels[fixedSteps < 0 ? 0 : m_ZoomLevelCount - 1]);
+    }
+}
+
+float ed::NavigateAction::MatchSmoothZoom(float steps)
+{
+    const auto power = Editor->GetConfig().SmoothZoomPower;
+
+    const auto newZoom = m_Zoom * powf(power, steps);
+    if (newZoom < m_ZoomLevels[0])
+        return m_ZoomLevels[0];
+    else if (newZoom > m_ZoomLevels[m_ZoomLevelCount - 1])
+        return m_ZoomLevels[m_ZoomLevelCount - 1];
+    else
+        return newZoom;
 }
 
 float ed::NavigateAction::MatchZoom(int steps, float fallbackZoom)
@@ -4370,15 +4397,15 @@ ed::EditorAction::AcceptResult ed::ShortcutAction::Accept(const Control& control
     Action candidateAction = None;
 
     auto& io = ImGui::GetIO();
-    if (io.KeyCtrl && !io.KeyShift && !io.KeyAlt && ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_X)))
+    if (io.KeyCtrl && !io.KeyShift && !io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_X))
         candidateAction = Cut;
-    if (io.KeyCtrl && !io.KeyShift && !io.KeyAlt && ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_C)))
+    if (io.KeyCtrl && !io.KeyShift && !io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_C))
         candidateAction = Copy;
-    if (io.KeyCtrl && !io.KeyShift && !io.KeyAlt && ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_V)))
+    if (io.KeyCtrl && !io.KeyShift && !io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_V))
         candidateAction = Paste;
-    if (io.KeyCtrl && !io.KeyShift && !io.KeyAlt && ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_D)))
+    if (io.KeyCtrl && !io.KeyShift && !io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_D))
         candidateAction = Duplicate;
-    if (!io.KeyCtrl && !io.KeyShift && !io.KeyAlt && ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Space)))
+    if (!io.KeyCtrl && !io.KeyShift && !io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_Space))
         candidateAction = CreateNode;
 
     if (candidateAction != None)
@@ -4715,14 +4742,14 @@ bool ed::CreateItemAction::Begin()
 {
     IM_ASSERT(false == m_InActive);
 
+    if (m_NextStage == None)
+        return false;
+
     m_InActive        = true;
     m_CurrentStage    = m_NextStage;
     m_UserAction      = Unknown;
     m_LinkColor       = IM_COL32_WHITE;
     m_LinkThickness   = 1.0f;
-
-    if (m_CurrentStage == None)
-        return false;
 
     m_LastChannel = Editor->GetDrawList()->_Splitter._Current;
 
@@ -4731,7 +4758,7 @@ bool ed::CreateItemAction::Begin()
 
 void ed::CreateItemAction::End()
 {
-    IM_ASSERT(m_InActive);
+    IM_ASSERT(m_InActive && "Please call End() only when Begin() was successful");
 
     if (m_IsInGlobalSpace)
     {
@@ -4932,7 +4959,7 @@ ed::EditorAction::AcceptResult ed::DeleteItemsAction::Accept(const Control& cont
         return False;
 
     auto& io = ImGui::GetIO();
-    if (Editor->CanAcceptUserInput() && ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Delete)) && Editor->AreShortcutsEnabled())
+    if (Editor->CanAcceptUserInput() && ImGui::IsKeyPressed(ImGuiKey_Delete) && Editor->AreShortcutsEnabled())
     {
         auto& selection = Editor->GetSelectedObjects();
         if (!selection.empty())
